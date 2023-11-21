@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-wEmeIV1mKuiNpC+IOBjI7aAzPcEZeedi5yW5f2yOq55WWLwNGmvvx4Um1vskeMj0" crossorigin="anonymous">
+	<style>
+        body {
+            background-image: url('/static/bg1.png'); /* 背景图像的URL */
+            background-size: cover; /* 以尽量填充整个屏幕 */
+            background-repeat: no-repeat; /* 不重复背景图像 */
+            background-attachment: fixed; /* 固定背景图像，使其不随页面滚动而移动 */
+        }
+
+		.custom-heading {
+            font-size: 5rem; /* 自定义字体大小，可以根据需要调整 */
+        }
+    </style>
+
+</head>
+
+<body>
+
+	<div class="container-fluid">
+		<br><br><h1 class="text-center  custom-heading">ORB-SLAM2定位編輯器</h1><br>
+		{% for frame in video_data %}
+        <div class="frame-container"  style="display: none;">
+            <img src="data:image/jpeg;base64,{{ frame }}" />
+        </div>
+    	{% endfor %} 
+
+
+		<!-- <div class=" d-flex justify-content-center align-items-center"> -->
+			<div class="row">
+				<div class="col-md-3">
+					<div class="bg-primary text-white">
+						<div class = "text-center ">特徵點清單</div>
+						<div id="coordinateList" class="mt-3"></div>
+					</div>
+				</div>
+				<div class="col-md-6 ">
+					<div class="text-center">
+						<canvas id="myCanvas" ></canvas>
+						
+						
+					</div>
+					<div >
+						<button type="button"  class="btn btn-primary btn-square mt-3" id="FPSbutton_add">+</button>
+						<span class="btn btn-light btn-square mt-3">FPS</span>
+						<button type="button"  class="btn btn-primary btn-square mt-3" id="FPSbutton_minus">-</button>
+
+						<!-- <button type="button"  class="btn btn-primary btn-square mt-3" id="sizebutton_add">+</button>
+						<span class="btn btn-light  mt-3">大小</span>
+						<button type="button"  class="btn btn-primary btn-square mt-3" id="sizebutton_minus">-</button> -->
+
+						<button type="button"  id="playPauseButton" class="btn btn-primary mt-3">播放</button>
+						<button id="addAccordionItemBtn" class="btn btn-primary mt-3">新增物件</button>
+					</div>
+
+				</div>
+				<!-- <div class="col-md-1 ">
+					<br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>
+					<div class="d-flex justify-content-between">
+						<button type="button"  class="btn btn-primary btn-square">+</button>
+						<span class="btn btn-light btn-square">FPS</span>
+						<button type="button"  class="btn btn-primary btn-square">-</button>
+					</div>
+					<div class="d-flex justify-content-between">
+
+						<button type="button"  class="btn btn-primary btn-square">+</button>
+						<span class="btn btn-light btn-square">大小</span>
+						<button type="button"  class="btn btn-primary btn-square">-</button>
+					</div>
+				</div> -->
+				<div class="col-md-3"> <!-- 右區域 -->
+					<div class="bg-info ">
+						<div class = "text-center text-white ">物件列表</div>
+				
+						<input type="text" id="object_Name" placeholder="輸入物體名稱">
+						
+						<div class="accordion" id="myAccordion"></div>
+							
+						
+					</div>
+				</div>
+			</div>
+	</div>
+	
+	
+
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-p34f1UUtsS3wqzfto5wAAmdvj+osOnFyQFpp4Ua3gs/ZVWx6oOypYoCJhGGScy+8" crossorigin="anonymous"></script>
+</body>
+
+<script>
+	var featureData = {{ feature_data|safe }};
+	var worldData = {{ world_data|safe }};
+	console.log("featureData.length: " + featureData.length);
+	console.log("worldData.length: " + worldData.length);
+
+	const canvas = document.getElementById('myCanvas');
+	const playPauseButton = document.getElementById("playPauseButton"); // 假設有一個播放按鈕
+	const object_Name = document.getElementById('object_Name');
+	const coordinateListContainer = document.getElementById('coordinateList');
+	const accordion = document.getElementById('myAccordion');
+	const FPSbutton_add = document.getElementById('FPSbutton_add');
+	const FPSbutton_minus = document.getElementById('FPSbutton_minus');
+	
+
+	const frameContainers = document.querySelectorAll('.frame-container');
+	const frames = Array.from(frameContainers);
+	const testframe = frames[0].querySelector('img');
+	
+
+	const ctx = canvas.getContext('2d');
+	var currentFrame = -1;
+	var save_index = -1;
+	var img = new Image();
+	let isPlaying = false;
+	let animationId;
+	var save_array = [];
+	var Accordion_index = 0;
+
+	var minX = Number.MAX_VALUE;
+	var minY = Number.MAX_VALUE;
+	var minZ = Number.MAX_VALUE;
+	var maxX = Number.MIN_VALUE;
+	var maxY = Number.MIN_VALUE;
+	var maxZ = Number.MIN_VALUE;
+	var centerX ;
+	var centerY ;
+	var centerZ ;
+
+	let FPS_count = 0;
+	let drawframe_count = 0;
+
+	let lastFrameTime = 0;
+	let fps;
+	let timestamp;
+
+	function createAccordionItem(itemNumber, body_text) {
+		// 创建元素
+		var newItem = document.createElement('div');
+		newItem.className = 'accordion-item';
+	  
+		// 设置折叠项的HTML内容
+		newItem.innerHTML = `
+		  <h2 class="accordion-header" id="heading${itemNumber}">
+			<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${itemNumber}">
+			  ${object_Name.value}
+			</button>
+		  </h2>
+		  <div id="collapse${itemNumber}" class="accordion-collapse collapse" aria-labelledby="heading${itemNumber}" data-bs-parent="#myAccordion">
+			<div class="accordion-body">
+			 ${body_text}
+			</div>
+		  </div>
+		`;
+	  
+		accordion.append(newItem);
+	}
+
+	document.getElementById('addAccordionItemBtn').addEventListener('click', function () {
+		Accordion_index++;
+		const body_text = analyze_pos();
+		createAccordionItem(Accordion_index, body_text);
+		coordinateListContainer.innerHTML = '';
+		minX = Number.MAX_VALUE;
+		minY = Number.MAX_VALUE;
+		minZ = Number.MAX_VALUE;
+		maxX = Number.MIN_VALUE;
+		maxY = Number.MIN_VALUE;
+		maxZ = Number.MIN_VALUE;
+		centerX = 0;
+		centerY = 0;
+		centerZ = 0;
+		save_array = [];
+    });
+
+
+	function displayMouseCoordinates(event) {
+		if (!isPlaying)
+		{
+			var mouseX = event.clientX - canvas.getBoundingClientRect().left;
+			var mouseY = event.clientY - canvas.getBoundingClientRect().top;
+			
+			var scaleX = canvas.width / canvas.clientWidth;
+			var scaleY = canvas.height / canvas.clientHeight;
+
+			var canvasMouseX = mouseX * scaleX;
+			var canvasMouseY = mouseY * scaleY;
+
+			var save_x = Infinity;  
+			var save_y = Infinity;  		
+			save_index = -1;
+			if(currentFrame>=0)
+			{
+				for (let i = 0; i < featureData[currentFrame].length; i++)
+				{					
+					if(save_index == -1)
+					{
+						save_x = Math.abs(canvasMouseX - featureData[currentFrame][i][0]).toFixed();
+						save_y = Math.abs(canvasMouseY - featureData[currentFrame][i][1]).toFixed();
+						if(save_x < 8 && save_y < 8)
+						{
+							save_index = i;			
+							//console.log("save_x, save_y : " + save_x + "," + save_y );				
+						}
+					}
+					else
+					{
+						var fix_x = Math.abs(canvasMouseX - featureData[currentFrame][i][0]).toFixed();
+						var fix_y = Math.abs(canvasMouseY - featureData[currentFrame][i][1]).toFixed();
+						var fix_value = parseInt(fix_x)+parseInt(fix_y);
+						var save_value =  parseInt(save_x) + parseInt(save_y);
+						if(fix_value < save_value)
+						{
+							save_index = i;
+						}
+					}
+				}
+				
+				const frameData = frames[currentFrame].querySelector('img');
+				ctx.drawImage(frameData, 0, 0);
+
+				if(save_index != -1)
+				{
+					drawFeatures(currentFrame,'red',save_index);
+				}else{
+					drawFeatures(currentFrame,'green');
+				}
+			}	
+		}
+	}
+
+	function save_world_pos(time_index, pos_index){
+		if(pos_index != -1)
+		{
+			var world_pos = worldData[time_index][pos_index];
+			console.log('world_pos = '+ world_pos);
+			var csvData =  world_pos[0] + ',' + world_pos[1] + ',' + world_pos[2] + '\n';
+			save_array.push(csvData);
+			console.log('csvData : '+ csvData);
+			console.log('save_array: '+ save_array);
+		}	
+	}
+
+	function analyze_pos(){
+		if (save_array.length === 0) {
+			console.log("save_array is empty.");
+			return;
+		}
+
+		for (var i = 0; i < save_array.length; i++) {
+			var data = save_array[i].split(",");
+			var x = parseFloat(data[0]);
+			var y = parseFloat(data[1]);
+			var z = parseFloat(data[2]);
+	
+			minX = Math.min(minX, x);
+			minY = Math.min(minY, y);
+			minZ = Math.min(minZ, z);
+			maxX = Math.max(maxX, x);
+			maxY = Math.max(maxY, y);
+			maxZ = Math.max(maxZ, z);
+		}
+
+		centerX = (minX +maxX) / 2;
+		centerY = (minY +maxY) / 2;
+		centerZ = (minZ +maxZ) / 2;
+
+		console.log('centerX, centerY, center: ', centerX, centerY, centerZ);
+		console.log('minX,maxX,minY,maxY,minZ,maxZ: ', minX, maxX, minY, maxY,minZ, maxZ);
+
+		var logString = 'centerX: ' + centerX + '<br>' + 
+						'centerY: ' + centerY + '<br>' + 
+						'centerZ: ' + centerZ + '<br>' + 
+						'minX: ' + minX + '<br>' + 
+						'maxX: ' + maxX + '<br>' +
+						'minY: ' + minY + '<br>' +
+						'maxY: ' + maxY + '<br>' +
+						'minZ: ' + minZ + '<br>' +
+						'maxZ: ' + maxZ + '<br>';
+               			
+
+		
+		return logString;
+	}
+
+
+	function drawFeatures(index,color,feature_index=-1) {
+		ctx.strokeStyle = 'green';
+		ctx.lineWidth=2;
+		pointSize = 5;
+		if(Array.isArray(featureData[index]))
+		{
+			for (let i = 0; i < featureData[index].length; i ++) 
+			{
+				const feature_point = featureData[index][i]; 
+				ctx.strokeRect(feature_point[0], feature_point[1], pointSize, pointSize);
+			}
+
+			if(feature_index != -1)
+			{
+				ctx.strokeStyle = 'red';
+				const feature_point = featureData[index][feature_index]; 
+				ctx.strokeRect(feature_point[0], feature_point[1], pointSize, pointSize);
+			}
+		}
+	}
+	function InitFrame() {
+		const frameData = frames[0].querySelector('img');
+		canvas.width = frameData.width;
+		canvas.height = frameData.height;
+		ctx.drawImage(frameData, 0, 0);
+	}
+
+
+	function drawFrame() {
+		
+		if(FPS_count > 0)
+		{
+			syncDelay(FPS_count*10);
+		}
+
+		if (currentFrame < frames.length  && isPlaying) {
+			currentFrame++;
+			const frameData = frames[currentFrame].querySelector('img');
+			canvas.width = frameData.width;
+			canvas.height = frameData.height;
+			ctx.drawImage(frameData, 0, 0);
+			animationId = requestAnimationFrame(drawFrame);
+		} 
+
+		drawFeatures(currentFrame,'green');
+
+		console.log('currentFrame:' + currentFrame);
+		if(frames.length-1 == currentFrame)
+		{
+			isPlaying = false;
+			cancelAnimationFrame(animationId); // 停止動畫
+			playPauseButton.textContent = "重播";
+			currentFrame= -1;
+		}
+	}
+
+	function syncDelay(milliseconds) {
+		var start = new Date().getTime();
+		var end = 0;
+		while ((end - start) < milliseconds) {
+			end = new Date().getTime();
+		}
+	}
+
+
+	function togglePlay() {
+
+		if (isPlaying) {
+			isPlaying = false;
+			cancelAnimationFrame(animationId); 
+			playPauseButton.textContent = "播放";
+		} else {
+			isPlaying = true;
+			drawFrame();
+			playPauseButton.textContent = "暫停";
+		}
+	}
+
+	playPauseButton.addEventListener("click", togglePlay);
+	
+
+	canvas.addEventListener('mousemove', displayMouseCoordinates);
+
+	canvas.addEventListener('click', function () {
+		save_world_pos(currentFrame, save_index);
+	});
+
+	canvas.addEventListener('click', function (event) {
+		if(save_index != -1)
+		{
+			// Get coordinates of the click
+			const x = event.clientX - canvas.getBoundingClientRect().left;
+			const y = event.clientY - canvas.getBoundingClientRect().top;
+		
+			// Create a new coordinate element
+			const coordinateElement = document.createElement('div');
+			coordinateElement.classList.add('alert', 'alert-primary');
+			coordinateElement.textContent = `feature ${save_index}: (${x}, ${y})`;
+		
+			// Append the coordinate element to the coordinateListContainer
+			coordinateListContainer.appendChild(coordinateElement);
+		}
+	});
+
+	
+
+	FPSbutton_minus.addEventListener('click', () => {
+		FPS_count++;
+		drawframe_count = FPS_count;
+		//console.log("FPS_count: " + FPS_count);
+	});
+
+	FPSbutton_add.addEventListener('click', () => {
+		if(FPS_count>0)
+		{
+			FPS_count--;
+		}
+		drawframe_count = FPS_count;
+		//console.log("FPS_count: " + FPS_count);
+	});
+
+	InitFrame();
+</script>
+</html>
